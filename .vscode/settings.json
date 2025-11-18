@@ -1,0 +1,7 @@
+{
+  "files.associations": {
+    "*.mdx": "markdown",
+    "*.bak": "cpp",
+    "cmath": "cpp"
+  }
+}
