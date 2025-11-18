@@ -50,6 +50,8 @@ int led_prev_state = HIGH;
 uint8_t failed_attempts = 0;
 const uint8_t FAILED_ATTEMPTS_THRESHOLD =
     3;  // trigger when > 3 (i.e. 4th wrong)
+// Separate counter for ESP-NOW invalid messages
+uint8_t espnow_failed_attempts = 0;
 
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -357,3 +359,67 @@ String uidToHex(const byte* uid, byte size) {
 
 // Append UID to file and vector if not already present
 // (removed previous append_allowed_uid - now using per-slot files)
+
+// --- ESP-NOW receive callback (ESP8266) -------------------------------
+// Single callback for ESP8266: interpret first byte of `data` as boolean
+// (0 = false, non-zero = true), print sender MAC and status. To act on the
+// value (e.g., control the relay), uncomment the example line below.
+// Callback signature for ESP8266: void OnDataRecv(uint8_t *mac, uint8_t *data,
+// uint8_t len)
+void OnEspNowRecv_ESP8266(uint8_t* mac, uint8_t* data, uint8_t len) {
+  if (!mac || !data || len == 0) return;
+
+  char mac_str[18];
+  snprintf(mac_str, sizeof(mac_str), "%02X:%02X:%02X:%02X:%02X:%02X", mac[0],
+           mac[1], mac[2], mac[3], mac[4], mac[5]);
+
+  bool status = data[0] != 0;
+  Serial.printf("ESP-NOW message from %s : status=%s\n", mac_str,
+                status ? "true" : "false");
+
+  // If status is true, activate relay for 10 seconds (non-blocking)
+  if (status) {
+    digitalWrite(RELAY_PIN, HIGH);
+    relay_end = millis() + 10000UL;  // 10 seconds
+    Serial.println("Relay activated via ESP-NOW for 10 seconds");
+    // reset esp-now failed attempts on success
+    espnow_failed_attempts = 0;
+  } else {
+    // No action for false by default. To turn off immediately, uncomment:
+    // digitalWrite(RELAY_PIN, LOW);
+    Serial.println("ESP-NOW status false — no relay action taken");
+    // increment esp-now failed attempts and trigger buzzer if threshold
+    // exceeded
+    if (espnow_failed_attempts < 255) ++espnow_failed_attempts;
+    Serial.printf("ESP-NOW failed attempts: %u\n",
+                  (unsigned)espnow_failed_attempts);
+    if (espnow_failed_attempts > FAILED_ATTEMPTS_THRESHOLD) {
+      digitalWrite(BUZZER_PIN, HIGH);
+      buzzer_end = millis() + 10000UL;  // 10 seconds
+      Serial.println("Buzzer alarm: too many ESP-NOW failed attempts");
+      espnow_failed_attempts = 0;  // reset after triggering
+    }
+  }
+
+  // Publish JSON log for this ESP-NOW message (same pattern as RFID logs)
+  {
+    JsonDocument doc;
+    doc["device_name"] = "ESP-NOW";
+    doc["status"] = status;
+    char log_payload[128];
+    size_t n = serializeJson(doc, log_payload, sizeof(log_payload));
+    if (n == 0) {
+      Serial.println("Failed to serialize ESP-NOW JSON log");
+    } else {
+      if (relay_end != 0 && millis() <= relay_end) {
+        Serial.println("Skipping ESP-NOW log publish while relay active");
+      } else if (client.connected()) {
+        bool ok = client.publish(LOG_TOPIC, log_payload);
+        Serial.printf("Published ESP-NOW log to %s: %s -> %s\n", LOG_TOPIC,
+                      log_payload, ok ? "OK" : "FAIL");
+      } else {
+        Serial.println("MQTT not connected, cannot publish ESP-NOW log");
+      }
+    }
+  }
+}
