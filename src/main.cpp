@@ -2,8 +2,8 @@
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
 
-#define WIFI_SSID "POCO F4"
-#define WIFI_PASSWORD "123456788"
+#define WIFI_SSID "Tamaristo_Bawah_Barat"
+#define WIFI_PASSWORD "Tamaristo123"
 #define MQTT_BROKER "broker.emqx.io"
 #define MQTT_PORT 1883
 
@@ -11,7 +11,8 @@
 
 #define LED_FINGERPRINT D5
 #define LED_RFID D6
-#define LED_DOOR D7
+#define DOOR_PIN D1
+#define BUZZER_ALARM_PIN D0
 
 // prototypes
 void connect_wifi();
@@ -25,7 +26,8 @@ void setup() {
   Serial.begin(115200);
   pinMode(LED_FINGERPRINT, OUTPUT);
   pinMode(LED_RFID, OUTPUT);
-  pinMode(LED_DOOR, OUTPUT);
+  pinMode(DOOR_PIN, OUTPUT);
+  pinMode(BUZZER_ALARM_PIN, OUTPUT);
 
   connect_wifi();
 
@@ -54,7 +56,8 @@ void connect_wifi() {
 
 bool led_fingerprint_state = false;
 bool led_rfid_state = false;
-bool led_door_state = false;
+bool door_state = false;
+bool buzzer_alarm_state = false;
 void on_message_received(char* topic, byte* payload, unsigned int length) {
   char message[24];
   for (unsigned int i = 0; i < length; i++) {
@@ -64,8 +67,8 @@ void on_message_received(char* topic, byte* payload, unsigned int length) {
 
   if (strcmp(topic, MQTT_BASE_TOPIC "/open-door") == 0) {
     Serial.println("Open door command received");
-    led_door_state = !led_door_state;
-    digitalWrite(LED_DOOR, led_door_state ? HIGH : LOW);
+    door_state = !door_state;
+    digitalWrite(DOOR_PIN, door_state ? HIGH : LOW);
   } else if (strcmp(topic, MQTT_BASE_TOPIC "/fingerprint-mode") == 0) {
     Serial.println("Fingerprint mode command received");
     led_fingerprint_state = !led_fingerprint_state;
@@ -74,6 +77,10 @@ void on_message_received(char* topic, byte* payload, unsigned int length) {
     Serial.println("RFID mode command received");
     led_rfid_state = !led_rfid_state;
     digitalWrite(LED_RFID, led_rfid_state ? HIGH : LOW);
+  } else if (strcmp(topic, MQTT_BASE_TOPIC "/buzzer-alarm") == 0) {
+    Serial.println("Buzzer alarm command received");
+    buzzer_alarm_state = !buzzer_alarm_state;
+    digitalWrite(BUZZER_ALARM_PIN, buzzer_alarm_state ? HIGH : LOW);
   }
 }
 
