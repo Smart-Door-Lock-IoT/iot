@@ -143,6 +143,8 @@ void connect_wifi() {
     Serial.print(".");
   }
   Serial.println("\nConnected to WiFi!");
+  // Print MAC address for ESP-NOW pairing
+  Serial.printf("WiFi MAC: %s\n", WiFi.macAddress().c_str());
 }
 
 bool door_state = false;
