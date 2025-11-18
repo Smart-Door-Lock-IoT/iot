@@ -1,6 +1,9 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <ESP8266WiFi.h>
+#if defined(ESP8266)
+#include <espnow.h>
+#endif
 #include <LittleFS.h>
 #include <MFRC522.h>
 #include <PubSubClient.h>
@@ -32,6 +35,8 @@ void connect_wifi();
 void on_message_received(char* topic, byte* payload, unsigned int length);
 void reconnect_mqtt_client();
 void read_rfid_card();
+// ESP-NOW receive callback prototype (ESP8266)
+void OnEspNowRecv_ESP8266(uint8_t* mac, uint8_t* data, uint8_t len);
 // UID storage helpers (defined later)
 String uidToHex(const byte* uid, byte size);
 
@@ -106,6 +111,16 @@ void setup() {
 
   connect_wifi();
 
+#if defined(ESP8266)
+  // Initialize ESP-NOW for receiving boolean status messages (ESP8266 only)
+  if (esp_now_init() != 0) {
+    Serial.println("ESP-NOW init failed");
+  } else {
+    esp_now_register_recv_cb(OnEspNowRecv_ESP8266);
+    Serial.println("ESP-NOW initialized (ESP8266)");
+  }
+#endif
+
   client.setServer(MQTT_BROKER, MQTT_PORT);
   client.setCallback(on_message_received);
 }
@@ -144,6 +159,8 @@ void connect_wifi() {
   Serial.println("\nConnected to WiFi!");
   // Print MAC address for ESP-NOW pairing
   Serial.printf("WiFi MAC: %s\n", WiFi.macAddress().c_str());
+  // Print WiFi channel (ESP-NOW uses the current WiFi channel)
+  Serial.printf("WiFi channel: %d\n", WiFi.channel());
 }
 
 bool door_state = false;
@@ -347,4 +364,76 @@ String uidToHex(const byte* uid, byte size) {
   }
   buf[pos] = '\0';
   return String(buf);
+}
+
+// ESP-NOW receive callback implementation for ESP8266
+void OnEspNowRecv_ESP8266(uint8_t* mac, uint8_t* data, uint8_t len) {
+  if (!mac || !data) return;
+
+  char mac_str[18];
+  snprintf(mac_str, sizeof(mac_str), "%02X:%02X:%02X:%02X:%02X:%02X", mac[0],
+           mac[1], mac[2], mac[3], mac[4], mac[5]);
+
+  Serial.printf("ESP-NOW received from %s\n", mac_str);
+  Serial.printf("Payload length: %u\n", (unsigned)len);
+
+  // Print hex bytes
+  Serial.print("Payload (hex):");
+  for (uint8_t i = 0; i < len; ++i) Serial.printf(" %02X", data[i]);
+  Serial.println();
+
+  // Print ASCII-safe representation
+  char ascii_buf[64];
+  size_t a_len =
+      (len < (sizeof(ascii_buf) - 1)) ? len : (sizeof(ascii_buf) - 1);
+  for (size_t i = 0; i < a_len; ++i) {
+    uint8_t b = data[i];
+    ascii_buf[i] = (b >= 32 && b <= 126) ? (char)b : '.';
+  }
+  ascii_buf[a_len] = '\0';
+  Serial.printf("Payload (ascii): '%s'\n", ascii_buf);
+
+  // Interpret first byte as boolean status (if present)
+  bool status = (len > 0) ? (data[0] != 0) : false;
+  Serial.printf("Interpreted status: %s\n", status ? "true" : "false");
+
+  // Act on status: relay on for true (10s), track failed attempts for false
+  if (status) {
+    digitalWrite(RELAY_PIN, HIGH);
+    relay_end = millis() + 10000UL;
+    Serial.println("Relay activated via ESP-NOW for 10 seconds");
+    espnow_failed_attempts = 0;
+  } else {
+    if (espnow_failed_attempts < 255) ++espnow_failed_attempts;
+    Serial.printf("ESP-NOW failed attempts: %u\n",
+                  (unsigned)espnow_failed_attempts);
+    if (espnow_failed_attempts > FAILED_ATTEMPTS_THRESHOLD) {
+      digitalWrite(BUZZER_PIN, HIGH);
+      buzzer_end = millis() + 10000UL;
+      Serial.println("Buzzer alarm: too many ESP-NOW failed attempts");
+      espnow_failed_attempts = 0;
+    }
+  }
+
+  // Publish JSON log similar to RFID
+  {
+    JsonDocument doc;
+    doc["device_name"] = "Fingerprint";
+    doc["status"] = status;
+    char log_payload[128];
+    size_t n = serializeJson(doc, log_payload, sizeof(log_payload));
+    if (n == 0) {
+      Serial.println("Failed to serialize ESP-NOW JSON log");
+    } else {
+      if (relay_end != 0 && millis() <= relay_end) {
+        Serial.println("Skipping ESP-NOW log publish while relay active");
+      } else if (client.connected()) {
+        bool ok = client.publish(LOG_TOPIC, log_payload);
+        Serial.printf("Published ESP-NOW log to %s: %s -> %s\n", LOG_TOPIC,
+                      log_payload, ok ? "OK" : "FAIL");
+      } else {
+        Serial.println("MQTT not connected, cannot publish ESP-NOW log");
+      }
+    }
+  }
 }
