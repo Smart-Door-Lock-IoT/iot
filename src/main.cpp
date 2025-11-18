@@ -43,6 +43,9 @@ int add_rfid_slot = 0;
 // relay_end
 unsigned long relay_end = 0;
 unsigned long buzzer_end = 0;
+// LED blink state for builtin LED when card detected
+unsigned long led_blink_end = 0;
+int led_prev_state = HIGH;
 // failed attempts counter: if user scans wrong UID more than this, sound buzzer
 uint8_t failed_attempts = 0;
 const uint8_t FAILED_ATTEMPTS_THRESHOLD =
@@ -91,6 +94,10 @@ void setup() {
   pinMode(BUZZER_PIN, OUTPUT);
   digitalWrite(BUZZER_PIN, LOW);
 
+  // setup builtin LED for blink feedback (ensure output; default off)
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, HIGH);
+
   // pinMode(DOOR_PIN, OUTPUT);
   // pinMode(BUZZER_ALARM_PIN, OUTPUT);
 
@@ -118,6 +125,11 @@ void loop() {
     digitalWrite(BUZZER_PIN, LOW);
     buzzer_end = 0;
     Serial.println("Buzzer turned OFF");
+  }
+  // Non-blocking LED blink restore
+  if (led_blink_end != 0 && millis() > led_blink_end) {
+    digitalWrite(LED_BUILTIN, led_prev_state);
+    led_blink_end = 0;
   }
 }
 
@@ -175,7 +187,6 @@ void on_message_received(char* topic, byte* payload, unsigned int length) {
     // Serial.println("Open door command received");
     // door_state = !door_state;
     // digitalWrite(DOOR_PIN, door_state ? HIGH : LOW);
-  } else if (strcmp(topic, MQTT_BASE_TOPIC "/fingerprint-mode") == 0) {
   } else if (strcmp(topic, MQTT_BASE_TOPIC "/rfid-mode") == 0) {
     // payload should be "1", "2", or "3" to select slot to register
     int slot = atoi(message);
@@ -245,6 +256,12 @@ void read_rfid_card() {
     Serial.print(last_uid[i], HEX);
   }
   Serial.println();
+
+  // Trigger a short blink of the builtin LED to indicate a card was detected
+  // Save previous state and invert it for the blink period
+  led_prev_state = digitalRead(LED_BUILTIN);
+  digitalWrite(LED_BUILTIN, !led_prev_state);
+  led_blink_end = millis() + 200UL;  // blink duration 200 ms
 
   // If RFID mode enabled, publish UID to MQTT topic (then disable once)
   if (add_rfid_slot > 0) {
