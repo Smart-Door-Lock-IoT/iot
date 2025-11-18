@@ -184,9 +184,10 @@ void on_message_received(char* topic, byte* payload, unsigned int length) {
   Serial.printf("Message arrived [%s]: %s\n", topic, message);
 
   if (strcmp(topic, MQTT_BASE_TOPIC "/open-door") == 0) {
-    // Serial.println("Open door command received");
-    // door_state = !door_state;
-    // digitalWrite(DOOR_PIN, door_state ? HIGH : LOW);
+    Serial.println("Open door command received (MQTT)");
+    digitalWrite(RELAY_PIN, HIGH);
+    relay_end = millis() + 10000UL;  // 10 seconds
+    Serial.println("Relay activated for 10 seconds (via MQTT)");
   } else if (strcmp(topic, MQTT_BASE_TOPIC "/rfid-mode") == 0) {
     // payload should be "1", "2", or "3" to select slot to register
     int slot = atoi(message);
