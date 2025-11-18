@@ -15,6 +15,8 @@
 
 #define MQTT_BASE_TOPIC "smart-door-lock-iot"
 
+#define RELAY_PIN D3
+
 // #define DOOR_PIN D1
 // #define BUZZER_ALARM_PIN D0
 
@@ -31,6 +33,10 @@ String allowed_uid_slots[4];
 
 // When >0, next scanned UID will be stored into this slot (1..3)
 int add_rfid_slot = 0;
+
+// Relay timer (non-blocking). If relay_end != 0, relay is on until millis() >
+// relay_end
+unsigned long relay_end = 0;
 
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -67,6 +73,10 @@ void setup() {
     Serial.printf("Loaded %u allowed UID slots\n", loaded);
   }
 
+  // setup relay pin
+  pinMode(RELAY_PIN, OUTPUT);
+  digitalWrite(RELAY_PIN, LOW);
+
   // pinMode(DOOR_PIN, OUTPUT);
   // pinMode(BUZZER_ALARM_PIN, OUTPUT);
 
@@ -82,6 +92,13 @@ void loop() {
   }
   client.loop();
   read_rfid_card();
+
+  // Non-blocking relay timeout handling
+  if (relay_end != 0 && millis() > relay_end) {
+    digitalWrite(RELAY_PIN, LOW);
+    relay_end = 0;
+    Serial.println("Relay turned OFF");
+  }
 }
 
 void connect_wifi() {
@@ -239,8 +256,10 @@ void read_rfid_card() {
     Serial.printf("UID %s => %s\n", uid.c_str(),
                   allowed ? "ALLOWED" : "NOT ALLOWED");
     if (allowed) {
-      // here you can add action for allowed UID, e.g., open door or publish
-      // event
+      // Activate relay for 10 seconds (non-blocking)
+      digitalWrite(RELAY_PIN, HIGH);
+      relay_end = millis() + 10000UL;  // 10 seconds
+      Serial.println("Relay activated for 10 seconds");
     }
   }
 }
