@@ -17,6 +17,7 @@
 #define MQTT_BASE_TOPIC "smart-door-lock-iot"
 
 #define RELAY_PIN D3
+#define BUZZER_PIN D4
 
 // Log topic for scan activities
 #define LOG_TOPIC MQTT_BASE_TOPIC "/log-activities"
@@ -41,6 +42,7 @@ int add_rfid_slot = 0;
 // Relay timer (non-blocking). If relay_end != 0, relay is on until millis() >
 // relay_end
 unsigned long relay_end = 0;
+unsigned long buzzer_end = 0;
 
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -81,6 +83,10 @@ void setup() {
   pinMode(RELAY_PIN, OUTPUT);
   digitalWrite(RELAY_PIN, LOW);
 
+  // setup buzzer pin
+  pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW);
+
   // pinMode(DOOR_PIN, OUTPUT);
   // pinMode(BUZZER_ALARM_PIN, OUTPUT);
 
@@ -102,6 +108,12 @@ void loop() {
     digitalWrite(RELAY_PIN, LOW);
     relay_end = 0;
     Serial.println("Relay turned OFF");
+  }
+  // Non-blocking buzzer timeout handling
+  if (buzzer_end != 0 && millis() > buzzer_end) {
+    digitalWrite(BUZZER_PIN, LOW);
+    buzzer_end = 0;
+    Serial.println("Buzzer turned OFF");
   }
 }
 
@@ -171,9 +183,10 @@ void on_message_received(char* topic, byte* payload, unsigned int length) {
           "Invalid rfid-mode payload: send 1, 2 or 3 to select slot");
     }
   } else if (strcmp(topic, MQTT_BASE_TOPIC "/buzzer-alarm") == 0) {
-    // Serial.println("Buzzer alarm command received");
-    // buzzer_alarm_state = !buzzer_alarm_state;
-    // digitalWrite(BUZZER_ALARM_PIN, buzzer_alarm_state ? HIGH : LOW);
+    // Activate buzzer for 10 seconds when this topic is received
+    digitalWrite(BUZZER_PIN, HIGH);
+    buzzer_end = millis() + 10000UL;  // 10 seconds
+    Serial.println("Buzzer activated for 10 seconds");
   }
 }
 
