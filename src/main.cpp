@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <ArduinoJson.h>
 #include <ESP8266WiFi.h>
 #include <LittleFS.h>
 #include <MFRC522.h>
@@ -16,6 +17,9 @@
 #define MQTT_BASE_TOPIC "smart-door-lock-iot"
 
 #define RELAY_PIN D3
+
+// Log topic for scan activities
+#define LOG_TOPIC MQTT_BASE_TOPIC "/log-activities"
 
 // #define DOOR_PIN D1
 // #define BUZZER_ALARM_PIN D0
@@ -255,6 +259,30 @@ void read_rfid_card() {
     }
     Serial.printf("UID %s => %s\n", uid.c_str(),
                   allowed ? "ALLOWED" : "NOT ALLOWED");
+
+    // Publish log activity as JSON to LOG_TOPIC using ArduinoJson
+    {
+      JsonDocument doc;
+      doc["device_name"] = "RFID";
+      doc["status"] = allowed;
+      char log_payload[128];
+      size_t n = serializeJson(doc, log_payload, sizeof(log_payload));
+      if (n == 0) {
+        Serial.println("Failed to serialize JSON log");
+      } else {
+        // Skip publishing logs while relay is active (during the 10s window)
+        if (relay_end != 0 && millis() <= relay_end) {
+          Serial.println("Skipping log publish while relay active");
+        } else if (client.connected()) {
+          bool ok = client.publish(LOG_TOPIC, log_payload);
+          Serial.printf("Published log to %s: %s -> %s\n", LOG_TOPIC,
+                        log_payload, ok ? "OK" : "FAIL");
+        } else {
+          Serial.println("MQTT not connected, cannot publish log");
+        }
+      }
+    }
+
     if (allowed) {
       // Activate relay for 10 seconds (non-blocking)
       digitalWrite(RELAY_PIN, HIGH);
