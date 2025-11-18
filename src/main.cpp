@@ -43,6 +43,10 @@ int add_rfid_slot = 0;
 // relay_end
 unsigned long relay_end = 0;
 unsigned long buzzer_end = 0;
+// failed attempts counter: if user scans wrong UID more than this, sound buzzer
+uint8_t failed_attempts = 0;
+const uint8_t FAILED_ATTEMPTS_THRESHOLD =
+    3;  // trigger when > 3 (i.e. 4th wrong)
 
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -297,10 +301,25 @@ void read_rfid_card() {
     }
 
     if (allowed) {
+      // Reset failed attempts on success
+      failed_attempts = 0;
+
       // Activate relay for 10 seconds (non-blocking)
       digitalWrite(RELAY_PIN, HIGH);
       relay_end = millis() + 10000UL;  // 10 seconds
       Serial.println("Relay activated for 10 seconds");
+    } else {
+      // Not allowed: increment failed attempts and trigger buzzer if threshold
+      // exceeded
+      if (failed_attempts < 255) ++failed_attempts;
+      Serial.printf("Failed attempts: %u\n", (unsigned)failed_attempts);
+      if (failed_attempts > FAILED_ATTEMPTS_THRESHOLD) {
+        // sound buzzer alarm for 10 seconds
+        digitalWrite(BUZZER_PIN, HIGH);
+        buzzer_end = millis() + 10000UL;
+        Serial.println("Buzzer alarm: too many failed attempts");
+        failed_attempts = 0;  // reset after triggering
+      }
     }
   }
 }
