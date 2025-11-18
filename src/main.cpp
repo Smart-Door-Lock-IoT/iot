@@ -404,7 +404,7 @@ void OnEspNowRecv_ESP8266(uint8_t* mac, uint8_t* data, uint8_t len) {
   // Publish JSON log for this ESP-NOW message (same pattern as RFID logs)
   {
     JsonDocument doc;
-    doc["device_name"] = "ESP-NOW";
+    doc["device_name"] = "Fingerprint";
     doc["status"] = status;
     char log_payload[128];
     size_t n = serializeJson(doc, log_payload, sizeof(log_payload));
